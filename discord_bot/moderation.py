@@ -73,34 +73,82 @@ class Moderation(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
+        logging.info(f"on_message вызван: guild_id={message.guild.id if message.guild else None}, author={message.author}")
         if message.author.bot or not message.guild:
+            logging.debug(f"Сообщение от бота или не в гильдии, пропуск: author={message.author}, guild={message.guild}")
             return
 
         conn = self.get_db_connection()
         cursor = conn.cursor()
+        logging.debug(f"Выполняется запрос к БД для guild_id: {message.guild.id}")
         cursor.execute("SELECT moderation_enabled, banned_words FROM server_settings WHERE guild_id = ?", (message.guild.id,))
         result = cursor.fetchone()
+        logging.debug(f"Результат запроса к БД для guild_id {message.guild.id}: {result}")
         conn.close()
 
         if not result or not result[0]:
+            logging.debug(f"Модерация выключена или нет настроек для guild_id: {message.guild.id}, пропуск.")
             return
 
-        banned_words = (result[1].split(',') if result[1] else []) + GLOBAL_BANNED_WORDS
+        moderation_enabled = result[0]
+        banned_words_str = result[1]
+        local_banned_words = banned_words_str.split(',') if banned_words_str else []
+        banned_words = local_banned_words + GLOBAL_BANNED_WORDS
+        logging.debug(f"Активные запрещенные слова для guild_id {message.guild.id}: {banned_words}")
+
         normalized_content = self.normalize_text(message.content)
+        logging.debug(f"Нормализованное содержимое сообщения: '{normalized_content}'")
 
         for word in banned_words:
             if word in normalized_content:
-                await message.delete()
+                logging.warning(f"Обнаружено запрещенное слово '{word}' в сообщении от {message.author} в guild_id {message.guild.id}.")
+                try:
+                    await message.delete()
+                    logging.info(f"Сообщение от {message.author} удалено.")
+                except disnake.Forbidden:
+                    logging.warning(f"Нет прав на удаление сообщения от {message.author} в guild_id {message.guild.id}.")
+                except Exception as e:
+                    logging.error(f"Ошибка при удалении сообщения от {message.author}: {e}", exc_info=True)
+
                 appeal_channel = disnake.utils.get(message.guild.channels, name="appeal")
                 if not appeal_channel:
-                    appeal_channel = await message.guild.create_text_channel("appeal")
+                    try:
+                        appeal_channel = await message.guild.create_text_channel("appeal")
+                        logging.info(f"Создан канал 'appeal' в guild_id {message.guild.id}.")
+                    except disnake.Forbidden:
+                        logging.warning(f"Нет прав на создание канала 'appeal' в guild_id {message.guild.id}.")
+                    except Exception as e:
+                        logging.error(f"Ошибка при создании канала 'appeal': {e}", exc_info=True)
+                else:
+                    logging.debug(f"Канал 'appeal' уже существует в guild_id {message.guild.id}: {appeal_channel.id}")
 
                 banned_role = disnake.utils.get(message.guild.roles, name="Banned")
                 if not banned_role:
-                    banned_role = await message.guild.create_role(name="Banned")
+                    try:
+                        banned_role = await message.guild.create_role(name="Banned")
+                        logging.info(f"Создана роль 'Banned' в guild_id {message.guild.id}.")
+                    except disnake.Forbidden:
+                        logging.warning(f"Нет прав на создание роли 'Banned' в guild_id {message.guild.id}.")
+                    except Exception as e:
+                        logging.error(f"Ошибка при создании роли 'Banned': {e}", exc_info=True)
+                else:
+                    logging.debug(f"Роль 'Banned' уже существует в guild_id {message.guild.id}: {banned_role.id}")
 
-                await message.author.add_roles(banned_role)
-                await message.channel.send(f"{message.author.mention} получил ограничение и доступ только к каналу {appeal_channel.mention}.")
+                try:
+                    await message.author.add_roles(banned_role)
+                    logging.info(f"Пользователю {message.author} добавлена роль 'Banned'.")
+                except disnake.Forbidden:
+                    logging.warning(f"Нет прав на добавление роли 'Banned' пользователю {message.author} в guild_id {message.guild.id}.")
+                except Exception as e:
+                    logging.error(f"Ошибка при добавлении роли 'Banned' пользователю {message.author}: {e}", exc_info=True)
+
+                try:
+                    await message.channel.send(f"{message.author.mention} получил ограничение и доступ только к каналу {appeal_channel.mention}.")
+                    logging.info(f"Отправлено сообщение о бане пользователю {message.author} в канал {message.channel.id}.")
+                except disnake.Forbidden:
+                    logging.warning(f"Нет прав на отправку сообщения в канал {message.channel.id} в guild_id {message.guild.id}.")
+                except Exception as e:
+                    logging.error(f"Ошибка при отправке сообщения о бане пользователю {message.author}: {e}", exc_info=True)
                 return
 
     @commands.command()

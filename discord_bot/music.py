@@ -14,35 +14,57 @@ class Music(commands.Cog):
             "options": "-vn"
         }
 
-    # Функции для работы с очередью
-    async def play_next(self, ctx):
-        guild_id = ctx.guild.id
-        logging.info(f"play_next вызван для guild_id: {guild_id}, voice_client={ctx.voice_client}")
-        queue = self.get_queue(guild_id)
-        logging.info(f"Текущая очередь для guild_id {guild_id}: {queue}")
-        if queue:
-            url, title, video_url = queue.pop(0)
-            logging.info(f"Из очереди извлечен: url={url}, title={title}, video_url={video_url}")
-            try:
-                ctx.voice_client.play(
-                    disnake.FFmpegPCMAudio(url, **FFMPEG_OPTIONS),
-                    after=lambda e: self.bot.loop.create_task(self.play_next(ctx))
-                )
-                await ctx.send(f"Сейчас играет: [{title}]({video_url})")
-                logging.info(f"Начато воспроизведение: title={title}, voice_client.is_playing()={ctx.voice_client.is_playing()}")
-            except Exception as e:
-                logging.error(f"Ошибка при воспроизведении: {e}", exc_info=True)
+    @commands.command(name="play", aliases=["играй", "пуск"])
+    async def play(self, ctx, *, query):
+        logging.info(f"Команда play вызвана: ctx.guild.id={ctx.guild.id}, ctx.author={ctx.author}, query='{query}'")
+
+        # Проверка: в голосовом ли канале пользователь
+        if not ctx.author.voice:
+            await ctx.send("Ты не в голосовом канале!")
+            logging.warning(f"Пользователь {ctx.author} не в голосовом канале.")
+            return
+
+        voice_channel = ctx.author.voice.channel
+        logging.info(f"Голосовой канал пользователя: {voice_channel}")
+
+        try:
+            if not ctx.voice_client:
+                voice_client = await voice_channel.connect()
+            else:
+                voice_client = ctx.voice_client
+            logging.info(f"Подключен к голосовому каналу: {voice_client}")
+        except Exception as e:
+            logging.error(f"Ошибка при подключении к голосовому каналу: {e}", exc_info=True)
+            await ctx.send("Не удалось подключиться к голосовому каналу.")
+            return
+
+        result = await self.search_youtube(query)
+        if not result or not result[0]:
+            await ctx.send("Не удалось найти трек.")
+            logging.warning(f"Не удалось найти трек по запросу: '{query}'")
+            return
+
+        url, title, video_url = result
+        queue = self.get_queue(ctx.guild.id)
+        queue.append((url, title, video_url))
+        logging.info(f"Трек добавлен в очередь: title='{title}', текущая очередь: {queue}")
+
+        if not voice_client.is_playing():
+            logging.info("Воспроизведение не запущено, вызов play_next.")
+            await self.play_next(ctx)
         else:
-            logging.info(f"Очередь пуста для guild_id: {guild_id}, воспроизведение остановлено.")
-            if ctx.voice_client:
-                await ctx.voice_client.disconnect()
-                logging.info(f"Бот отключился от голосового канала в guild_id: {guild_id} из-за пустой очереди.")
+            await ctx.send(f"Добавлено в очередь: [{title}]({video_url})")
+            logging.info(f"Трек добавлен в очередь, воспроизведение уже идет.")
 
     def get_queue(self, guild_id):
-        if guild_id not in queues:
-            queues[guild_id] = []
+        if guild_id not in self.queues:
+            self.queues[guild_id] = []
             logging.info(f"Создана новая очередь для guild_id: {guild_id}")
-        return queues[guild_id]
+        return self.queues[guild_id]
+
+    async def _extract_info(self, ydl, query):
+        """Helper function to run extract_info in a separate thread."""
+        return ydl.extract_info(query, download=False)
 
     async def search_youtube(self, query):
         """Ищет видео и возвращает его URL и название."""
@@ -80,51 +102,41 @@ class Music(commands.Cog):
                     await voice_client.disconnect()
                     logging.info("Бот отключился, так как в канале никого нет.")
 
-    # Команды
-    @commands.command(name="play", aliases=["играй", "пуск"])
-    async def play(self, ctx, *, query):
-        logging.info(f"Команда play вызвана: ctx.guild.id={ctx.guild.id}, ctx.author={ctx.author}, query='{query}'")
-        if not ctx.author.voice:
-            await ctx.send("Ты не в голосовом канале!")
-            logging.warning(f"Пользователь {ctx.author} не в голосовом канале.")
-            return
-
-        voice_channel = ctx.author.voice.channel
-        logging.info(f"Голосовой канал пользователя: {voice_channel}")
-        vc = await voice_channel.connect() if not ctx.voice_client else ctx.voice_client
-        logging.info(f"Подключен к голосовому каналу: {vc}")
-
-        result = await self.search_youtube(query)
-        logging.info(f"Результат поиска для '{query}': {result}")
-        if not result or not result[0]:
-            await ctx.send("Не удалось найти трек.")
-            logging.warning(f"Не удалось найти трек по запросу: '{query}'")
-            return
-
-        url, title, video_url = result
-        queue = self.get_queue(ctx.guild.id)
-        queue.append((url, title, video_url))
-        logging.info(f"Трек добавлен в очередь: title='{title}', текущая очередь: {queue}")
-
-        if not vc.is_playing():
-            logging.info("Воспроизведение не запущено, вызов play_next.")
-            await self.play_next(ctx)
-        else:
-            await ctx.send(f"Добавлено в очередь: [{title}]({video_url})")
-            logging.info(f"Трек добавлен в очередь, воспроизведение уже идет.")
-
-    @commands.command()
-    async def queue(self, ctx):
+    async def play_next(self, ctx):
         guild_id = ctx.guild.id
+        logging.info(f"play_next вызван для guild_id: {guild_id}, voice_client={ctx.voice_client}")
         queue = self.get_queue(guild_id)
-        logging.info(f"Команда queue вызвана для guild_id: {guild_id}, очередь: {queue}")
-        if not queue:
-            await ctx.send("Очередь пуста.")
-            logging.info(f"Очередь пуста для guild_id: {guild_id}.")
+        logging.info(f"Текущая очередь для guild_id {guild_id}: {queue}")
+        if queue:
+            url, title, video_url = queue.pop(0)
+            logging.info(f"Из очереди извлечен: url={url}, title={title}, video_url={video_url}")
+            try:
+                ctx.voice_client.play(
+                    disnake.FFmpegPCMAudio(url, **self.FFMPEG_OPTIONS),
+                    after=lambda e: self.bot.loop.create_task(self.play_next(ctx))
+                )
+                await ctx.send(f"Сейчас играет: [{title}]({video_url})")
+                logging.info(f"Начато воспроизведение: title={title}, voice_client.is_playing()={ctx.voice_client.is_playing()}")
+            except Exception as e:
+                logging.error(f"Ошибка при воспроизведении: {e}", exc_info=True)
         else:
-            queue_list = '\n'.join([f"{i+1}. [{title}]({video_url})" for i, (_, title, video_url) in enumerate(queue)])
-            await ctx.send(f"Текущая очередь:\n{queue_list}")
-            logging.info(f"Показана очередь для guild_id: {guild_id}:\n{queue_list}")
+            logging.info(f"Очередь пуста для guild_id: {guild_id}, воспроизведение остановлено.")
+            if ctx.voice_client:
+                await ctx.voice_client.disconnect()
+                logging.info(f"Бот отключился от голосового канала в guild_id: {guild_id} из-за пустой очереди.")
+
+        @commands.command()
+        async def queue(self, ctx):
+            guild_id = ctx.guild.id
+            queue = self.get_queue(guild_id)
+            logging.info(f"Команда queue вызвана для guild_id: {guild_id}, очередь: {queue}")
+            if not queue:
+                await ctx.send("Очередь пуста.")
+                logging.info(f"Очередь пуста для guild_id: {guild_id}.")
+            else:
+                queue_list = '\n'.join([f"{i+1}. [{title}]({video_url})" for i, (_, title, video_url) in enumerate(queue)])
+                await ctx.send(f"Текущая очередь:\n{queue_list}")
+                logging.info(f"Показана очередь для guild_id: {guild_id}:\n{queue_list}")
 
     @commands.command()
     async def skip(self, ctx):
@@ -156,7 +168,7 @@ class Music(commands.Cog):
         logging.info(f"Команда stop вызвана: ctx.guild.id={ctx.guild.id}, voice_client={ctx.voice_client}")
         if ctx.voice_client:
             ctx.voice_client.stop()
-            queues[ctx.guild.id] = []
+            self.queues[ctx.guild.id] = []
             await ctx.send("⏹️ Музыка остановлена и очередь очищена.")
             logging.info(f"Музыка остановлена и очередь очищена для guild_id: {ctx.guild.id}.")
         else:
@@ -167,4 +179,3 @@ def setup(bot):
     logging.info("Вызвана функция setup для Music Cog.")
     bot.add_cog(Music(bot))
     logging.info("Music Cog добавлен в бота.")
-

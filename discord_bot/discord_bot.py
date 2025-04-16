@@ -5,6 +5,8 @@ import logging
 from dotenv import load_dotenv
 from disnake.ext import commands
 
+load_dotenv()
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -15,7 +17,9 @@ logging.basicConfig(
 # Проверяем opus
 if not disnake.opus.is_loaded():
     try:
-        disnake.opus.load_opus('libopus.0.dylib')
+        opus_path = os.getenv('OPUS_PATH')
+        logging.info(f"Путь к Opus: {opus_path}")
+        disnake.opus.load_opus(opus_path)
     except Exception as e:
         logging.error(f"Ошибка загрузки Opus: {e}")
 
@@ -27,7 +31,6 @@ bot = commands.Bot(command_prefix=['!', 'бобик '], intents=intents)
 # Подключение к БД
 conn = sqlite3.connect('data/bot.db')
 cursor = conn.cursor()
-load_dotenv()
 
 async def load_cogs():
     for filename in os.listdir('.'):
@@ -66,7 +69,7 @@ async def on_ready():
         timestamp TEXT
     );''')
     conn.commit()
-
+    await load_cogs()
     await bot._sync_application_commands()
     logging.info(f'{bot.user.name} готов!')
 
@@ -264,14 +267,11 @@ async def user(interaction, member: disnake.Member):
     await interaction.response.send_message(f"Тег пользователя: {member}\nID: {member.id}")
 
 # Запуск бота
-async def main():
-    TOKEN = os.getenv('TOKEN')
-    try:
-        await load_cogs()
-        await bot.start(TOKEN)
-    except Exception as e:
-        logging.exception(f"Произошла ошибка: {e}")
+
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    TOKEN = os.getenv('TOKEN')
+    try:
+        bot.run(TOKEN)
+    except Exception as e:
+        logging.exception(f"Произошла ошибка: {e}")
