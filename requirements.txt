@@ -4,3 +4,4 @@ python-dotenv==1.1.0
 Unidecode==1.3.8
 yt_dlp==2025.3.31
 PyNaCl
+ffmpeg
