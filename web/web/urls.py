@@ -20,4 +20,8 @@ from django.urls import path, include
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('accounts/', include('allauth.urls')),
+    path('', include('main.urls')),
+    path('', include('users.urls')),
+    path('', include('payment.urls')),
+    path('admin/celery/', include('django_celery_beat.urls')),
 ]

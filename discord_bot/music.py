@@ -9,6 +9,7 @@ class Music(commands.Cog):
         self.bot = bot
         logging.info(f"Music Cog инициализирован: bot={self.bot.user.name if self.bot.user else 'None'}")
         self.queues = {}
+        self.track_start_times = {}
         self.FFMPEG_OPTIONS = {
             "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
             "options": "-vn"
@@ -32,6 +33,7 @@ class Music(commands.Cog):
                 logging.info(f"Подключен к голосовому каналу: {voice_client.channel.name}")
             elif ctx.voice_client.channel != voice_channel:
                 await ctx.voice_client.move_to(voice_channel)
+                voice_client = ctx.voice_client
                 logging.info(f"Перемещен в голосовой канал: {voice_client.channel.name}")
             else:
                 voice_client = ctx.voice_client
@@ -105,7 +107,7 @@ class Music(commands.Cog):
                 return
             elif len(before.channel.members) == 1 and after.channel != before.channel and member != self.bot.user:
                 logging.info("Бот один в канале, запуск таймера отключения.")
-                await asyncio.sleep(10)
+                await asyncio.sleep(60)
                 if voice_client and len(voice_client.channel.members) == 1 and voice_client.channel.members[0] == self.bot.user:
                     await voice_client.disconnect()
                     logging.info("Бот отключился, так как в канале никого нет.")
@@ -122,6 +124,8 @@ class Music(commands.Cog):
                 if ctx.voice_client is None or not ctx.voice_client.is_connected():
                     logging.warning("Бот не подключен к голосовому каналу, воспроизведение невозможно.")
                     return
+                ctx.voice_client.current_track = (url, title, video_url)
+                self.track_start_times[guild_id] = disnake.utils.utcnow()
                 source = disnake.FFmpegPCMAudio(url, **self.FFMPEG_OPTIONS)
                 ctx.voice_client.play(source, after=lambda e: self.bot.loop.create_task(self.play_next(ctx)))
                 await ctx.send(f"Сейчас играет: [{title}]({video_url})")
@@ -182,6 +186,39 @@ class Music(commands.Cog):
         else:
             await ctx.send("Бот не подключен к голосовому каналу.")
             logging.info("Попытка остановить, но бот не подключен к голосовому каналу.")
+
+    @commands.command()
+    async def seek(self, ctx, seconds: int):
+        """Перематывает текущий трек на указанное количество секунд (можно отрицательные значения)."""
+        if not ctx.voice_client or not ctx.voice_client.is_playing():
+            await ctx.send("Сейчас ничего не играет.")
+            return
+
+        guild_id = ctx.guild.id
+        queue = self.get_queue(guild_id)
+        current_track = getattr(ctx.voice_client, "current_track", None)
+
+        if not current_track:
+            await ctx.send("Невозможно перемотать — отсутствует информация о текущем треке.")
+            return
+
+        url, title, video_url = current_track
+        current_position = (disnake.utils.utcnow() - self.track_start_times.get(guild_id, disnake.utils.utcnow())).total_seconds()
+        new_position = max(0, int(current_position + seconds))
+
+        try:
+            ctx.voice_client.stop()
+            ffmpeg_options = {
+                "before_options": f"-ss {new_position} -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                "options": "-vn"
+            }
+            source = disnake.FFmpegPCMAudio(url, **ffmpeg_options)
+            ctx.voice_client.play(source, after=lambda e: self.bot.loop.create_task(self.play_next(ctx)))
+            self.track_start_times[guild_id] = disnake.utils.utcnow() - disnake.utils.timedelta(seconds=new_position)
+            await ctx.send(f"⏩ Перемотано до {new_position} секунд: [{title}]({video_url})")
+        except Exception as e:
+            logging.error(f"Ошибка при перемотке: {e}", exc_info=True)
+            await ctx.send("Не удалось перемотать трек.")
 
 def setup(bot):
     logging.info("Вызвана функция setup для Music Cog.")

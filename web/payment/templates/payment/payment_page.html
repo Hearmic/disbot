@@ -1,0 +1,30 @@
+<h1 class="text-2xl font-bold mb-4">Выберите тариф и оплатите</h1>
+
+<form method="post" class="mb-6">
+    {% csrf_token %}
+    <div class="mb-4">
+        {{ form.as_p }}
+    </div>
+    <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Продолжить оплату</button>
+</form>
+
+<h2 class="text-xl font-semibold mb-2">Доступные тарифы:</h2>
+{% if tariffs %}
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for tariff in tariffs %}
+            <div class="bg-white rounded-lg shadow-md p-4">
+                <h3 class="text-lg font-semibold">{{ tariff.name }}</h3>
+                <p class="text-gray-600">Цена: {{ tariff.price }} USD</p>
+                <p class="text-gray-600">Длительность: {{ tariff.duration }} дней</p>
+                <p class="text-gray-700 mt-2">{{ tariff.description }}</p>
+                {% if tariff.is_active %}
+                    <span class="inline-block bg-green-200 text-green-700 px-2 py-1 rounded-full text-sm font-semibold mt-2">Активен</span>
+                {% else %}
+                    <span class="inline-block bg-red-200 text-red-700 px-2 py-1 rounded-full text-sm font-semibold mt-2">Неактивен</span>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="text-gray-500">Нет доступных тарифов.</p>
+{% endif %}

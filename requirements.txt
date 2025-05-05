@@ -1,7 +1,34 @@
-disnake==2.10.1
+# Web Framework
 Django==5.1.7
+django-allauth==0.61.1
+django-crispy-forms==2.1
+
+# Async и Таски
+celery==5.3.6
+django-celery-beat==2.5.0
+redis==5.0.3
+
+# База данных
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+
+# API и Интеграции
+requests==2.31.0
+djangorestframework==3.14.0
+
+# Безопасность
+django-cors-headers==4.3.1
+django-environ==0.11.2
+
+# Утилиты
 python-dotenv==1.1.0
 Unidecode==1.3.8
+
+# Специфические
+disnake==2.10.1
 yt_dlp==2025.3.31
-PyNaCl
-ffmpeg
+PyNaCl==1.5.0
+ffmpeg-python==0.2.0
+
+# Майнкрафт и Discord
+xbox-api==0.1.1  # Если используете Xbox API
